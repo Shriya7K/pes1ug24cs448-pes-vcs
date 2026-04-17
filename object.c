@@ -183,6 +183,68 @@ return 0;
 // Returns 0 on success, -1 on error (file not found, corrupt, etc.).
 int object_read(const ObjectID *id, ObjectType *type_out, void **data_out, size_t *len_out) {
     // TODO: Implement
+// Step 1: Get object path
+char path[256];
+object_path(id, path, sizeof(path));
+
+// Step 2: Open file
+FILE *f = fopen(path, "rb");
+if (!f) return -1;
+
+// Get file size
+fseek(f, 0, SEEK_END);
+size_t file_size = ftell(f);
+rewind(f);
+
+// Read file into buffer
+char *buffer = malloc(file_size);
+if (!buffer) {
+    fclose(f);
+    return -1;
+}
+
+fread(buffer, 1, file_size, f);
+fclose(f);
+
+// Step 3: Verify hash
+unsigned char computed[32];
+compute_hash(buffer, file_size, computed);
+
+if (memcmp(computed, id->hash, 32) != 0) {
+    free(buffer);
+    return -1;
+}
+
+// Step 4: Parse header
+char *null_pos = memchr(buffer, '\0', file_size);
+if (!null_pos) {
+    free(buffer);
+    return -1;
+}
+
+// Extract type and size
+char type_str[10];
+size_t size;
+
+sscanf(buffer, "%s %zu", type_str, &size);
+
+// Set type
+if (strcmp(type_str, "blob") == 0) *type_out = OBJ_BLOB;
+else if (strcmp(type_str, "tree") == 0) *type_out = OBJ_TREE;
+else *type_out = OBJ_COMMIT;
+
+// Step 5: Extract data
+*data_out = malloc(size);
+if (!*data_out) {
+    free(buffer);
+    return -1;
+}
+
+memcpy(*data_out, null_pos + 1, size);
+*len_out = size;
+
+free(buffer);
+return 0;
     (void)id; (void)type_out; (void)data_out; (void)len_out;
     return -1;
 }
