@@ -251,7 +251,8 @@ int commit_create(const char *message, ObjectID *commit_id_out) {
         free(serialized);
         return -1;
     }
-
+    if (commit_serialize(&commit, &serialized, &len) != 0 || !serialized)
+    return -1;
     // 7. Cleanup
     free(serialized);
 
