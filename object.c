@@ -113,6 +113,11 @@ memcpy(buffer + header_len, data, len);
 unsigned char hash[32];
 compute_hash(buffer, total_size, hash);
 memcpy(id_out->hash, hash, 32);
+// Step 4: Check if object already exists
+if (object_exists(id_out)) {
+    free(buffer);
+    return 0;
+}
 }
 
 // Read an object from the store.
