@@ -208,14 +208,19 @@ int index_save(const Index *index) {
 int index_add(Index *index, const char *path) {
     FILE *fp = fopen(path, "rb");
     if (!fp) {
-        fprintf(stderr, "error: cannot open file '%s'\n", path);
+        fprintf(stderr, "error: failed to open '%s'\n", path);
         return -1;
     }
 
-    // get file size
+    // Get file size
     fseek(fp, 0, SEEK_END);
     long size = ftell(fp);
     rewind(fp);
+
+    if (size < 0) {
+        fclose(fp);
+        return -1;
+    }
 
     void *data = malloc(size);
     if (!data) {
@@ -223,34 +228,53 @@ int index_add(Index *index, const char *path) {
         return -1;
     }
 
-    fread(data, 1, size, fp);
+    if (fread(data, 1, size, fp) != (size_t)size) {
+        free(data);
+        fclose(fp);
+        return -1;
+    }
+
     fclose(fp);
 
-    // write blob object
+    // Create object (BLOB)
     ObjectID id;
     if (object_write(OBJ_BLOB, data, size, &id) < 0) {
         free(data);
+        fprintf(stderr, "error: failed to write object for '%s'\n", path);
         return -1;
     }
 
     free(data);
 
-    // get file metadata
+    // Get file metadata
     struct stat st;
-    if (stat(path, &st) < 0)
+    if (stat(path, &st) < 0) {
+        fprintf(stderr, "error: cannot stat '%s'\n", path);
         return -1;
+    }
 
-    // update or create index entry
+    // Find or create index entry
     IndexEntry *e = index_find(index, path);
     if (!e) {
+        if (index->count >= MAX_INDEX_ENTRIES) {
+            fprintf(stderr, "error: index full\n");
+            return -1;
+        }
         e = &index->entries[index->count++];
     }
 
+    // Fill entry correctly
     e->mode = st.st_mode & 0777;
     e->size = size;
     e->hash = id;
-    strcpy(e->path, path);
+    strncpy(e->path, path, sizeof(e->path) - 1);
+    e->path[sizeof(e->path) - 1] = '\0';
 
-    // save index
-    return index_save(index);
+    // Save index
+    if (index_save(index) < 0) {
+        fprintf(stderr, "error: failed to save index\n");
+        return -1;
+    }
+
+    return 0;
 }
