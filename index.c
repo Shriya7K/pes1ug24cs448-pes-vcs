@@ -139,28 +139,39 @@ int index_load(Index *index) {
 
     index->count = 0;
 
-    // If index file doesn't exist, start empty index
     if (!fp)
         return 0;
 
     char line[1024];
 
     while (fgets(line, sizeof(line), fp)) {
-        IndexEntry e;
 
-        char hash[65];
+        IndexEntry e;
+        char hash_str[65];
         char path[512];
 
-        if (sscanf(line, "%o %64s %ld %ld %s",
-                   &e.mode,
-                   hash,
-                   &e.mtime,
-                   &e.size,
-                   path) != 5) {
-            continue; // skip malformed lines
+        unsigned long mode;
+        unsigned long size;
+
+        if (sscanf(line, "%lx %64s %lx %lx %s",
+                   &mode,
+                   hash_str,
+                   &size,
+                   &size,
+                   path) < 4) {
+            continue;
         }
 
-        strcpy(e.hash, hash);
+        e.mode = mode;
+        e.size = size;
+
+        // convert string hash → ObjectID safely
+        ObjectID id;
+        memset(&id, 0, sizeof(ObjectID));
+        memcpy(&id, hash_str, strlen(hash_str));
+
+        e.hash = id;
+
         strcpy(e.path, path);
 
         index->entries[index->count++] = e;
@@ -168,8 +179,7 @@ int index_load(Index *index) {
 
     fclose(fp);
     return 0;
-}
-// Save the index to .pes/index atomically.
+}// Save the index to .pes/index atomically.
 //
 // HINTS - Useful functions and syscalls:
 //   - qsort                            : sorting the entries array by path
