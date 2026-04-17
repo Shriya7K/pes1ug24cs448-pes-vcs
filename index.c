@@ -14,7 +14,7 @@
 //
 // PROVIDED functions: index_find, index_remove, index_status
 // TODO functions:     index_load, index_save, index_add
-
+#include "pes.h"
 #include "index.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -136,45 +136,44 @@ int index_status(const Index *index) {
 // Returns 0 on success, -1 on error.
 int index_load(Index *index) {
     FILE *fp = fopen(".pes/index", "r");
-
     index->count = 0;
 
-    if (!fp)
-        return 0;
+    if (!fp) return 0;
 
     char line[1024];
 
     while (fgets(line, sizeof(line), fp)) {
-
         IndexEntry e;
-        char hash_str[65];
+        char hash_hex[65];
         char path[512];
 
         unsigned long mode;
         unsigned long size;
+        long mtime;
 
-        if (sscanf(line, "%lx %64s %lx %lx %s",
+        if (sscanf(line, "%lo %64s %ld %lu %s",
                    &mode,
-                   hash_str,
+                   hash_hex,
+                   &mtime,
                    &size,
-                   &size,
-                   path) < 4) {
+                   path) != 5) {
             continue;
         }
 
-        e.mode = mode;
-        e.size = size;
-
-        // convert string hash → ObjectID safely
         ObjectID id;
-        memset(&id, 0, sizeof(ObjectID));
-        memcpy(&id, hash_str, strlen(hash_str));
+        if (hex_to_hash(hash_hex, &id) != 0)
+            continue;
 
+        e.mode = mode;
+        e.size = (unsigned int)size;
+        e.mtime_sec = mtime;
         e.hash = id;
 
-        strcpy(e.path, path);
+        strncpy(e.path, path, sizeof(e.path) - 1);
+        e.path[sizeof(e.path) - 1] = '\0';
 
-        index->entries[index->count++] = e;
+        if (index->count < MAX_INDEX_ENTRIES)
+            index->entries[index->count++] = e;
     }
 
     fclose(fp);
@@ -190,12 +189,45 @@ int index_load(Index *index) {
 //
 // Returns 0 on success, -1 on error.
 int index_save(const Index *index) {
-    // TODO: Implement atomic index saving
-    // (See Lab Appendix for logical steps)
-    (void)index;
-    return -1;
-}
+    mkdir(".pes", 0755);
 
+    FILE *f = fopen(".pes/index.tmp", "w");
+    if (!f) return -1;
+
+    Index *temp = malloc(sizeof(Index));
+    if (!temp) {
+        fclose(f);
+        return -1;
+    }
+
+    *temp = *index;
+
+    qsort(temp->entries, temp->count, sizeof(IndexEntry),
+          (int (*)(const void*, const void*))strcmp);
+
+    for (int i = 0; i < temp->count; i++) {
+        char hex[HASH_HEX_SIZE + 1];
+        hash_to_hex(&temp->entries[i].hash, hex);
+
+        fprintf(f, "%o %s %ld %u %s\n",
+                temp->entries[i].mode,
+                hex,
+                temp->entries[i].mtime_sec,
+                temp->entries[i].size,
+                temp->entries[i].path);
+    }
+
+    free(temp);
+
+    fflush(f);
+    fsync(fileno(f));
+    fclose(f);
+
+    if (rename(".pes/index.tmp", ".pes/index") != 0)
+        return -1;
+
+    return 0;
+}
 // Stage a file for the next commit.
 //
 // HINTS - Useful functions and syscalls:
@@ -207,19 +239,11 @@ int index_save(const Index *index) {
 // Returns 0 on success, -1 on error.
 int index_add(Index *index, const char *path) {
     FILE *fp = fopen(path, "rb");
-    if (!fp) {
-        fprintf(stderr, "error: failed to open '%s'\n", path);
-        return -1;
-    }
+    if (!fp) return -1;
 
     fseek(fp, 0, SEEK_END);
     long size = ftell(fp);
     rewind(fp);
-
-    if (size <= 0) {
-        fclose(fp);
-        return -1;
-    }
 
     void *data = malloc(size);
     if (!data) {
@@ -227,39 +251,33 @@ int index_add(Index *index, const char *path) {
         return -1;
     }
 
-    if (fread(data, 1, size, fp) != (size_t)size) {
-        free(data);
-        fclose(fp);
-        return -1;
-    }
-
+    fread(data, 1, size, fp);
     fclose(fp);
 
-    // Create blob object
     ObjectID id;
     if (object_write(OBJ_BLOB, data, size, &id) < 0) {
         free(data);
-        fprintf(stderr, "error: object_write failed for '%s'\n", path);
         return -1;
     }
 
     free(data);
 
-    // Get file metadata
     struct stat st;
-    if (stat(path, &st) < 0) {
-        return -1;
-    }
+    if (stat(path, &st) < 0) return -1;
 
-    // Find or create index entry
     IndexEntry *e = index_find(index, path);
+
     if (!e) {
+        if (index->count >= MAX_INDEX_ENTRIES)
+            return -1;
         e = &index->entries[index->count++];
     }
 
     e->mode = st.st_mode & 0777;
-    e->size = size;
+    e->size = (unsigned int)size;
+    e->mtime_sec = st.st_mtime;
     e->hash = id;
+
     strncpy(e->path, path, sizeof(e->path) - 1);
     e->path[sizeof(e->path) - 1] = '\0';
 

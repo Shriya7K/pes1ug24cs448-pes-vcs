@@ -94,70 +94,84 @@ int object_exists(const ObjectID *id) {
 //
 // Returns 0 on success, -1 on error.
 int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out) {
-    // TODO: Implement
-    // Step 1: Create header
-char header[64];
-const char *type_str = (type == OBJ_BLOB) ? "blob" :
-                       (type == OBJ_TREE) ? "tree" : "commit";
+    // Step 1: header
+    char header[64];
 
-int header_len = snprintf(header, sizeof(header), "%s %zu", type_str, len) + 1;
-// Step 2: Create full buffer (header + data)
-size_t total_size = header_len + len;
+    const char *type_str =
+        (type == OBJ_BLOB) ? "blob" :
+        (type == OBJ_TREE) ? "tree" : "commit";
 
-char *buffer = malloc(total_size);
-if (!buffer) return -1;
+    int header_len = snprintf(header, sizeof(header), "%s %zu", type_str, len) + 1;
 
-memcpy(buffer, header, header_len);
-memcpy(buffer + header_len, data, len);
-// Step 3: Compute SHA-256 hash
-compute_hash(buffer, total_size, id_out);
-// Step 4: Check if object already exists
-if (object_exists(id_out)) {
+    // Step 2: full buffer
+    size_t total_size = header_len + len;
+
+    char *buffer = malloc(total_size);
+    if (!buffer) return -1;
+
+    memcpy(buffer, header, header_len);
+    if (len > 0 && data != NULL)
+        memcpy(buffer + header_len, data, len);
+
+    // Step 3: hash
+    compute_hash(buffer, total_size, id_out);
+
+    // Step 4: dedup
+    if (object_exists(id_out)) {
+        free(buffer);
+        return 0;
+    }
+
+    // Step 5: path
+    char path[256];
+    object_path(id_out, path, sizeof(path));
+
+    // Step 6: directory
+    char dir[256];
+    strcpy(dir, path);
+
+    char *slash = strrchr(dir, '/');
+    if (slash) *slash = '\0';
+
+    mkdir(".pes", 0755);
+    mkdir(".pes/objects", 0755);
+    mkdir(dir, 0755);
+
+    // Step 7: temp file
+    char tmp[300];
+    snprintf(tmp, sizeof(tmp), "%s.tmpXXXXXX", path);
+
+    int fd = mkstemp(tmp);
+    if (fd < 0) {
+        free(buffer);
+        return -1;
+    }
+
+    if (write(fd, buffer, total_size) != (ssize_t)total_size) {
+        close(fd);
+        free(buffer);
+        return -1;
+    }
+
+    fsync(fd);
+    close(fd);
+
+    // Step 8: atomic rename
+    if (rename(tmp, path) != 0) {
+        free(buffer);
+        return -1;
+    }
+
+    // Step 9: fsync directory
+    int dfd = open(dir, O_DIRECTORY);
+    if (dfd >= 0) {
+        fsync(dfd);
+        close(dfd);
+    }
+
     free(buffer);
     return 0;
 }
-// Step 5: Get object path
-char path[256];
-object_path(id_out, path, sizeof(path));
-
-// Extract directory path (.pes/objects/XX)
-char dir[256];
-strncpy(dir, path, strlen(path) - strlen(strrchr(path, '/')));
-dir[strlen(path) - strlen(strrchr(path, '/'))] = '\0';
-
-// Create directory if needed
-mkdir(dir, 0755);
-
-// Step 6: Create temp file
-char temp_path[300];
-snprintf(temp_path, sizeof(temp_path), "%s.tmp", path);
-
-int fd = open(temp_path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
-if (fd < 0) {
-    free(buffer);
-    return -1;
-}
-
-// Write data
-if (write(fd, buffer, total_size) != (ssize_t)total_size) {
-    close(fd);
-    free(buffer);
-    return -1;
-}
-
-// Flush to disk
-fsync(fd);
-close(fd);
-
-// Step 7: Rename temp → final
-rename(temp_path, path);
-
-// Cleanup
-free(buffer);
-
-return 0;
-}
-
 // Read an object from the store.
 //
 // Steps:
