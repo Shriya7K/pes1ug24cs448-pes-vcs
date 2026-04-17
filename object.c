@@ -95,8 +95,12 @@ int object_exists(const ObjectID *id) {
 // Returns 0 on success, -1 on error.
 int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out) {
     // TODO: Implement
-    (void)type; (void)data; (void)len; (void)id_out;
-    return -1;
+    // Step 1: Create header
+char header[64];
+const char *type_str = (type == OBJ_BLOB) ? "blob" :
+                       (type == OBJ_TREE) ? "tree" : "commit";
+
+int header_len = snprintf(header, sizeof(header), "%s %zu", type_str, len) + 1;
 }
 
 // Read an object from the store.
@@ -108,8 +112,7 @@ int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out
 //   4. Verify integrity: recompute the SHA-256 of the file contents
 //      and compare to the expected hash (from *id). Return -1 if mismatch.
 //   5. Set *type_out to the parsed ObjectType
-//   6. Allocate a buffer, copy the data portion (after the \0), set *data_out and *len_out
-//
+//   6. Allocate a buffer, copy the data portion (after the \0), set *data_out and *len_o//
 // HINTS - Useful syscalls and functions for this phase:
 //   - object_path        : getting the target file path
 //   - fopen, fread, fseek: reading the file into memory
