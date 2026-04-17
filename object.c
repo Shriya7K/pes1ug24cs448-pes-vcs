@@ -118,6 +118,46 @@ if (object_exists(id_out)) {
     free(buffer);
     return 0;
 }
+// Step 5: Get object path
+char path[256];
+object_path(id_out, path, sizeof(path));
+
+// Extract directory path (.pes/objects/XX)
+char dir[256];
+strncpy(dir, path, strlen(path) - strlen(strrchr(path, '/')));
+dir[strlen(path) - strlen(strrchr(path, '/'))] = '\0';
+
+// Create directory if needed
+mkdir(dir, 0755);
+
+// Step 6: Create temp file
+char temp_path[300];
+snprintf(temp_path, sizeof(temp_path), "%s.tmp", path);
+
+int fd = open(temp_path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+if (fd < 0) {
+    free(buffer);
+    return -1;
+}
+
+// Write data
+if (write(fd, buffer, total_size) != (ssize_t)total_size) {
+    close(fd);
+    free(buffer);
+    return -1;
+}
+
+// Flush to disk
+fsync(fd);
+close(fd);
+
+// Step 7: Rename temp → final
+rename(temp_path, path);
+
+// Cleanup
+free(buffer);
+
+return 0;
 }
 
 // Read an object from the store.
