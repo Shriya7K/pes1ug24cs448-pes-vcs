@@ -101,6 +101,14 @@ const char *type_str = (type == OBJ_BLOB) ? "blob" :
                        (type == OBJ_TREE) ? "tree" : "commit";
 
 int header_len = snprintf(header, sizeof(header), "%s %zu", type_str, len) + 1;
+// Step 2: Create full buffer (header + data)
+size_t total_size = header_len + len;
+
+char *buffer = malloc(total_size);
+if (!buffer) return -1;
+
+memcpy(buffer, header, header_len);
+memcpy(buffer + header_len, data, len);
 }
 
 // Read an object from the store.
