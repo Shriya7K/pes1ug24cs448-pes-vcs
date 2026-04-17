@@ -13,7 +13,7 @@
 //
 // PROVIDED functions: commit_parse, commit_serialize, commit_walk, head_read, head_update
 // TODO functions:     commit_create
-
+// Phase 4 step 1: tree creation logic
 #include "commit.h"
 #include "index.h"
 #include "tree.h"
