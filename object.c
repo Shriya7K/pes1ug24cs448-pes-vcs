@@ -110,9 +110,7 @@ if (!buffer) return -1;
 memcpy(buffer, header, header_len);
 memcpy(buffer + header_len, data, len);
 // Step 3: Compute SHA-256 hash
-unsigned char hash[32];
-compute_hash(buffer, total_size, hash);
-memcpy(id_out->hash, hash, 32);
+compute_hash(buffer, total_size, id_out);
 // Step 4: Check if object already exists
 if (object_exists(id_out)) {
     free(buffer);
@@ -207,10 +205,10 @@ fread(buffer, 1, file_size, f);
 fclose(f);
 
 // Step 3: Verify hash
-unsigned char computed[32];
-compute_hash(buffer, file_size, computed);
+ObjectID computed;
+compute_hash(buffer, file_size, &computed);
 
-if (memcmp(computed, id->hash, 32) != 0) {
+if (memcmp(computed.hash, id->hash, 32) != 0) {
     free(buffer);
     return -1;
 }
