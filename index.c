@@ -212,12 +212,11 @@ int index_add(Index *index, const char *path) {
         return -1;
     }
 
-    // Get file size
     fseek(fp, 0, SEEK_END);
     long size = ftell(fp);
     rewind(fp);
 
-    if (size < 0) {
+    if (size <= 0) {
         fclose(fp);
         return -1;
     }
@@ -236,11 +235,11 @@ int index_add(Index *index, const char *path) {
 
     fclose(fp);
 
-    // Create object (BLOB)
+    // Create blob object
     ObjectID id;
     if (object_write(OBJ_BLOB, data, size, &id) < 0) {
         free(data);
-        fprintf(stderr, "error: failed to write object for '%s'\n", path);
+        fprintf(stderr, "error: object_write failed for '%s'\n", path);
         return -1;
     }
 
@@ -249,32 +248,20 @@ int index_add(Index *index, const char *path) {
     // Get file metadata
     struct stat st;
     if (stat(path, &st) < 0) {
-        fprintf(stderr, "error: cannot stat '%s'\n", path);
         return -1;
     }
 
     // Find or create index entry
     IndexEntry *e = index_find(index, path);
     if (!e) {
-        if (index->count >= MAX_INDEX_ENTRIES) {
-            fprintf(stderr, "error: index full\n");
-            return -1;
-        }
         e = &index->entries[index->count++];
     }
 
-    // Fill entry correctly
     e->mode = st.st_mode & 0777;
     e->size = size;
     e->hash = id;
     strncpy(e->path, path, sizeof(e->path) - 1);
     e->path[sizeof(e->path) - 1] = '\0';
 
-    // Save index
-    if (index_save(index) < 0) {
-        fprintf(stderr, "error: failed to save index\n");
-        return -1;
-    }
-
-    return 0;
+    return index_save(index);
 }
