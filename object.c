@@ -109,6 +109,10 @@ if (!buffer) return -1;
 
 memcpy(buffer, header, header_len);
 memcpy(buffer + header_len, data, len);
+// Step 3: Compute SHA-256 hash
+unsigned char hash[32];
+compute_hash(buffer, total_size, hash);
+memcpy(id_out->hash, hash, 32);
 }
 
 // Read an object from the store.
